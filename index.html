@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Reading Room — Document Viewer</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- PDF.js -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- mammoth.js for .docx -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<!-- SheetJS for .xlsx / .xls / .csv -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root {
+    --paper: #f3ebdc;
+    --paper-deep: #ebe1cd;
+    --ink: #1a1714;
+    --ink-soft: #4a4338;
+    --ink-faint: #8a8170;
+    --rule: #cdc2a9;
+    --accent: #a8431f;
+    --accent-soft: #d4825a;
+    --highlight: #f7f0df;
+    --shadow: 0 1px 0 rgba(26,23,20,0.04), 0 8px 24px -8px rgba(26,23,20,0.18);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  body {
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(26,23,20,0.04) 1px, transparent 0);
+    background-size: 24px 24px;
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    grid-template-rows: auto 1fr;
+    grid-template-areas:
+      "header header"
+      "sidebar main";
+  }
+
+  /* ───── HEADER ───── */
+  header {
+    grid-area: header;
+    padding: 22px 32px 18px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  .brand-mark {
+    font-family: 'Fraunces', serif;
+    font-weight: 800;
+    font-size: 28px;
+    letter-spacing: -0.02em;
+    line-height: 1;
+  }
+  .brand-mark em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--accent);
+  }
+  .brand-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink-faint);
+  }
+  .brand-sub::before {
+    content: "—— ";
+    color: var(--rule);
+  }
+
+  .header-meta {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    color: var(--ink-faint);
+    letter-spacing: 0.06em;
+    text-align: right;
+  }
+  .header-meta strong {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ───── SIDEBAR ───── */
+  aside {
+    grid-area: sidebar;
+    padding: 28px 28px 24px;
+    border-right: 1px solid var(--rule);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  .dropzone {
+    border: 2px dashed var(--rule);
+    border-radius: 2px;
+    padding: 28px 18px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background: var(--paper);
+    position: relative;
+  }
+  .dropzone:hover, .dropzone.dragover {
+    border-color: var(--accent);
+    background: var(--highlight);
+  }
+  .dropzone-icon {
+    font-family: 'Fraunces', serif;
+    font-size: 36px;
+    font-weight: 400;
+    font-style: italic;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 10px;
+  }
+  .dropzone-title {
+    font-family: 'Fraunces', serif;
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .dropzone-sub {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: var(--ink-faint);
+  }
+  #file-input { display: none; }
+
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--ink-faint);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+
+  .file-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .file-item {
+    padding: 9px 10px;
+    border-radius: 2px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-left: 2px solid transparent;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .file-item:hover { background: var(--highlight); }
+  .file-item.active {
+    background: var(--highlight);
+    border-left-color: var(--accent);
+  }
+  .file-item-mark {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 9px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+    min-width: 32px;
+  }
+  .file-item.active .file-item-mark { color: var(--accent); }
+  .file-item-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .info-block {
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 0;
+    border-bottom: 1px dotted var(--rule);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+  }
+  .info-row:last-child { border-bottom: none; }
+  .info-key { color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; }
+  .info-val { color: var(--ink); text-align: right; }
+
+  /* ───── MAIN READER ───── */
+  main {
+    grid-area: main;
+    overflow-y: auto;
+    padding: 40px 56px 80px;
+    position: relative;
+  }
+
+  .reader {
+    max-width: 860px;
+    margin: 0 auto;
+  }
+
+  .reader-empty {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--ink-faint);
+  }
+  .reader-empty-mark {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 84px;
+    line-height: 1;
+    color: var(--rule);
+    margin-bottom: 24px;
+  }
+  .reader-empty h2 {
+    font-family: 'Fraunces', serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 28px;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+    letter-spacing: -0.01em;
+  }
+  .reader-empty p {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+  }
+
+  .doc-header {
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 18px;
+    margin-bottom: 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .doc-title {
+    font-family: 'Fraunces', serif;
+    font-size: 32px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+  .doc-type-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    padding: 5px 10px;
+    border: 1px solid var(--ink);
+    background: var(--ink);
+    color: var(--paper);
+    white-space: nowrap;
+  }
+
+  /* PDF rendering */
+  .pdf-canvas-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+  .pdf-canvas-wrap canvas {
+    box-shadow: var(--shadow);
+    background: white;
+    max-width: 100%;
+    height: auto;
+  }
+  .page-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--ink-faint);
+  }
+
+  /* DOCX content */
+  .docx-content {
+    font-family: 'Fraunces', serif;
+    font-size: 17px;
+    line-height: 1.7;
+    color: var(--ink);
+  }
+  .docx-content h1, .docx-content h2, .docx-content h3 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    margin: 1.6em 0 0.6em;
+    letter-spacing: -0.01em;
+  }
+  .docx-content h1 { font-size: 1.7em; }
+  .docx-content h2 { font-size: 1.4em; }
+  .docx-content h3 { font-size: 1.2em; }
+  .docx-content p { margin-bottom: 1em; }
+  .docx-content ul, .docx-content ol { margin: 0 0 1em 1.5em; }
+  .docx-content li { margin-bottom: 0.3em; }
+  .docx-content table {
+    border-collapse: collapse;
+    margin: 1em 0;
+    width: 100%;
+  }
+  .docx-content td, .docx-content th {
+    border: 1px solid var(--rule);
+    padding: 8px 12px;
+    text-align: left;
+  }
+  .docx-content th { background: var(--highlight); font-weight: 600; }
+  .docx-content img { max-width: 100%; height: auto; margin: 1em 0; }
+  .docx-content a { color: var(--accent); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+  /* Sheet content */
+  .sheet-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
+  }
+  .sheet-tab {
+    padding: 10px 16px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    border: 1px solid var(--rule);
+    border-bottom: none;
+    background: var(--paper-deep);
+    color: var(--ink-faint);
+    margin-right: -1px;
+    transition: all 0.15s ease;
+  }
+  .sheet-tab:hover { color: var(--ink); }
+  .sheet-tab.active {
+    background: var(--paper);
+    color: var(--accent);
+    position: relative;
+  }
+  .sheet-tab.active::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 2px;
+    background: var(--paper);
+  }
+  .sheet-table-wrap {
+    overflow-x: auto;
+    background: white;
+    border: 1px solid var(--rule);
+    border-top: none;
+    box-shadow: var(--shadow);
+  }
+  .sheet-table {
+    border-collapse: collapse;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    width: 100%;
+  }
+  .sheet-table td, .sheet-table th {
+    border: 1px solid var(--rule);
+    padding: 6px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .sheet-table thead th {
+    background: var(--ink);
+    color: var(--paper);
+    font-weight: 500;
+    position: sticky;
+    top: 0;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+  }
+  .sheet-table tbody tr:nth-child(even) { background: var(--highlight); }
+  .row-num {
+    background: var(--paper-deep) !important;
+    color: var(--ink-faint);
+    font-weight: 500;
+    text-align: right !important;
+  }
+
+  /* Plain text / code */
+  .text-content {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    background: white;
+    padding: 28px 32px;
+    border: 1px solid var(--rule);
+    box-shadow: var(--shadow);
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--ink);
+    overflow-x: auto;
+  }
+
+  .image-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
+  .image-wrap img {
+    max-width: 100%;
+    max-height: 75vh;
+    box-shadow: var(--shadow);
+    background: white;
+  }
+
+  .error {
+    padding: 28px;
+    border-left: 3px solid var(--accent);
+    background: var(--highlight);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    color: var(--ink);
+  }
+  .error strong {
+    display: block;
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    margin-bottom: 6px;
+    font-style: italic;
+  }
+
+  .loading {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--ink-faint);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+  }
+  .loading-dot {
+    display: inline-block;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  .loading-dot:nth-child(2) { animation-delay: 0.15s; }
+  .loading-dot:nth-child(3) { animation-delay: 0.3s; }
+  @keyframes pulse {
+    0%, 80%, 100% { opacity: 0.2; }
+    40% { opacity: 1; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--paper); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border: 2px solid var(--paper);
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
+
+  @media (max-width: 900px) {
+    body {
+      grid-template-columns: 1fr;
+      grid-template-areas: "header" "sidebar" "main";
+      grid-template-rows: auto auto 1fr;
+      overflow: auto;
+    }
+    aside {
+      border-right: none;
+      border-bottom: 1px solid var(--rule);
+      max-height: 50vh;
+    }
+    main { padding: 28px 20px 60px; }
+    .doc-title { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-mark">The Reading <em>Room</em></div>
+    <div class="brand-sub">A quiet place for documents</div>
+  </div>
+  <div class="header-meta">
+    <div><strong id="file-count">0</strong> documents in session</div>
+    <div>everything stays on your device</div>
+  </div>
+</header>
+
+<aside>
+  <label for="file-input" class="dropzone" id="dropzone">
+    <div class="dropzone-icon">+</div>
+    <div class="dropzone-title">Open a document</div>
+    <div class="dropzone-sub">click or drop · pdf · docx · xlsx · txt</div>
+  </label>
+  <input type="file" id="file-input" multiple
+         accept=".pdf,.docx,.xlsx,.xls,.csv,.txt,.md,.json,.html,.htm,.xml,.log,.js,.css,.py,.png,.jpg,.jpeg,.gif,.webp,.svg" />
+
+  <div>
+    <div class="section-label">Session</div>
+    <ul class="file-list" id="file-list">
+      <li style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-faint);padding:8px 10px;letter-spacing:0.06em;">
+        — no documents yet —
+      </li>
+    </ul>
+  </div>
+
+  <div id="info-panel" style="display:none;">
+    <div class="section-label">Document</div>
+    <div class="info-block" id="info-block"></div>
+  </div>
+
+  <div style="margin-top:auto;font-family:'IBM Plex Mono',monospace;font-size:9px;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink-faint);padding-top:16px;border-top:1px solid var(--rule);">
+    Built with PDF.js · Mammoth · SheetJS
+  </div>
+</aside>
+
+<main>
+  <div class="reader" id="reader">
+    <div class="reader-empty">
+      <div class="reader-empty-mark">¶</div>
+      <h2>Nothing on the desk yet</h2>
+      <p>Open a file to begin</p>
+    </div>
+  </div>
+</main>
+
+<script>
+  // PDF.js worker
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const state = {
+    files: [],          // {id, file, type, name}
+    activeId: null,
+    nextId: 1,
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  // ───── FILE TYPE DETECTION ─────
+  function detectType(file) {
+    const name = file.name.toLowerCase();
+    const ext = name.split('.').pop();
+    if (ext === 'pdf') return 'pdf';
+    if (ext === 'docx') return 'docx';
+    if (['xlsx','xls','csv'].includes(ext)) return 'sheet';
+    if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) return 'image';
+    if (['txt','md','json','html','htm','xml','log','js','css','py','ts','tsx','jsx','yaml','yml','ini','sh'].includes(ext)) return 'text';
+    return 'unknown';
+  }
+
+  function typeLabel(t) {
+    return ({
+      pdf: 'PDF', docx: 'Word', sheet: 'Sheet',
+      image: 'Image', text: 'Text', unknown: 'File',
+    })[t] || 'File';
+  }
+
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/(1024*1024)).toFixed(2) + ' MB';
+  }
+
+  // ───── FILE INTAKE ─────
+  function addFiles(fileList) {
+    [...fileList].forEach(f => {
+      const id = state.nextId++;
+      state.files.push({ id, file: f, type: detectType(f), name: f.name });
+    });
+    renderFileList();
+    $('file-count').textContent = state.files.length;
+    if (state.activeId === null && state.files.length > 0) {
+      openFile(state.files[0].id);
+    }
+  }
+
+  function renderFileList() {
+    const list = $('file-list');
+    if (state.files.length === 0) {
+      list.innerHTML = `<li style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-faint);padding:8px 10px;letter-spacing:0.06em;">— no documents yet —</li>`;
+      return;
+    }
+    list.innerHTML = state.files.map((f, i) => `
+      <li class="file-item ${f.id === state.activeId ? 'active' : ''}" data-id="${f.id}">
+        <span class="file-item-mark">${String(i+1).padStart(2,'0')} · ${typeLabel(f.type)}</span>
+        <span class="file-item-name" title="${f.name}">${f.name}</span>
+      </li>
+    `).join('');
+    list.querySelectorAll('.file-item').forEach(el => {
+      el.addEventListener('click', () => openFile(parseInt(el.dataset.id)));
+    });
+  }
+
+  function openFile(id) {
+    const entry = state.files.find(f => f.id === id);
+    if (!entry) return;
+    state.activeId = id;
+    renderFileList();
+    showInfo(entry);
+    renderDoc(entry);
+  }
+
+  function showInfo(entry) {
+    $('info-panel').style.display = 'block';
+    $('info-block').innerHTML = `
+      <div class="info-row"><span class="info-key">Type</span><span class="info-val">${typeLabel(entry.type)}</span></div>
+      <div class="info-row"><span class="info-key">Size</span><span class="info-val">${fmtSize(entry.file.size)}</span></div>
+      <div class="info-row"><span class="info-key">Modified</span><span class="info-val">${new Date(entry.file.lastModified).toLocaleDateString()}</span></div>
+    `;
+  }
+
+  // ───── RENDER DISPATCH ─────
+  async function renderDoc(entry) {
+    const reader = $('reader');
+    reader.innerHTML = `
+      <div class="doc-header">
+        <div class="doc-title">${escapeHtml(entry.name)}</div>
+        <div class="doc-type-badge">${typeLabel(entry.type)}</div>
+      </div>
+      <div class="loading">
+        loading<span class="loading-dot">.</span><span class="loading-dot">.</span><span class="loading-dot">.</span>
+      </div>
+    `;
+    const body = document.createElement('div');
+    try {
+      switch (entry.type) {
+        case 'pdf':   await renderPDF(entry.file, body); break;
+        case 'docx':  await renderDocx(entry.file, body); break;
+        case 'sheet': await renderSheet(entry.file, body); break;
+        case 'image': await renderImage(entry.file, body); break;
+        case 'text':  await renderText(entry.file, body); break;
+        default:      renderUnknown(entry.file, body);
+      }
+      // Swap loading -> content
+      const loading = reader.querySelector('.loading');
+      if (loading) loading.remove();
+      reader.appendChild(body);
+    } catch (err) {
+      console.error(err);
+      const loading = reader.querySelector('.loading');
+      if (loading) loading.remove();
+      body.innerHTML = `<div class="error"><strong>Couldn't open this one.</strong>${escapeHtml(err.message || String(err))}</div>`;
+      reader.appendChild(body);
+    }
+  }
+
+  // ───── PDF ─────
+  async function renderPDF(file, container) {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const wrap = document.createElement('div');
+    wrap.className = 'pdf-canvas-wrap';
+    container.appendChild(wrap);
+
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const scale = Math.min(1.5, (container.clientWidth || 800) / page.getViewport({scale:1}).width);
+      const viewport = page.getViewport({ scale: scale * 1.4 });
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = viewport.width * dpr;
+      canvas.height = viewport.height * dpr;
+      canvas.style.width = viewport.width + 'px';
+      canvas.style.height = viewport.height + 'px';
+      ctx.scale(dpr, dpr);
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const label = document.createElement('div');
+      label.className = 'page-label';
+      label.textContent = `— page ${i} of ${pdf.numPages} —`;
+      wrap.appendChild(canvas);
+      wrap.appendChild(label);
+    }
+  }
+
+  // ───── DOCX ─────
+  async function renderDocx(file, container) {
+    const buf = await file.arrayBuffer();
+    const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+    const div = document.createElement('div');
+    div.className = 'docx-content';
+    div.innerHTML = result.value || '<em>(empty document)</em>';
+    container.appendChild(div);
+  }
+
+  // ───── SHEET ─────
+  async function renderSheet(file, container) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const tabsEl = document.createElement('div');
+    tabsEl.className = 'sheet-tabs';
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'sheet-table-wrap';
+    container.appendChild(tabsEl);
+    container.appendChild(tableWrap);
+
+    const renderSheetTab = (name) => {
+      tabsEl.querySelectorAll('.sheet-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.name === name);
+      });
+      const sheet = wb.Sheets[name];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (rows.length === 0) {
+        tableWrap.innerHTML = '<div style="padding:24px;font-family:IBM Plex Mono,monospace;font-size:12px;color:var(--ink-faint);">(empty sheet)</div>';
+        return;
+      }
+      const maxCols = Math.max(...rows.map(r => r.length));
+      const colLetter = (n) => {
+        let s = '';
+        n += 1;
+        while (n > 0) { const r = (n-1) % 26; s = String.fromCharCode(65+r) + s; n = Math.floor((n-1)/26); }
+        return s;
+      };
+      let html = '<table class="sheet-table"><thead><tr><th class="row-num"></th>';
+      for (let c = 0; c < maxCols; c++) html += `<th>${colLetter(c)}</th>`;
+      html += '</tr></thead><tbody>';
+      rows.forEach((row, ri) => {
+        html += `<tr><td class="row-num">${ri+1}</td>`;
+        for (let c = 0; c < maxCols; c++) {
+          const v = row[c] === undefined ? '' : row[c];
+          html += `<td>${escapeHtml(String(v))}</td>`;
+        }
+        html += '</tr>';
+      });
+      html += '</tbody></table>';
+      tableWrap.innerHTML = html;
+    };
+
+    wb.SheetNames.forEach((name, i) => {
+      const t = document.createElement('div');
+      t.className = 'sheet-tab' + (i === 0 ? ' active' : '');
+      t.textContent = name;
+      t.dataset.name = name;
+      t.addEventListener('click', () => renderSheetTab(name));
+      tabsEl.appendChild(t);
+    });
+    if (wb.SheetNames.length > 0) renderSheetTab(wb.SheetNames[0]);
+  }
+
+  // ───── IMAGE ─────
+  async function renderImage(file, container) {
+    const url = URL.createObjectURL(file);
+    const wrap = document.createElement('div');
+    wrap.className = 'image-wrap';
+    wrap.innerHTML = `<img src="${url}" alt="${escapeHtml(file.name)}" />
+                      <div class="page-label">${escapeHtml(file.name)}</div>`;
+    container.appendChild(wrap);
+  }
+
+  // ───── TEXT ─────
+  async function renderText(file, container) {
+    const text = await file.text();
+    const pre = document.createElement('pre');
+    pre.className = 'text-content';
+    pre.textContent = text;
+    container.appendChild(pre);
+  }
+
+  // ───── UNKNOWN ─────
+  function renderUnknown(file, container) {
+    container.innerHTML = `<div class="error">
+      <strong>Unrecognized format</strong>
+      This viewer handles PDF, DOCX, XLSX/XLS/CSV, plain text and images.
+      Try renaming the file or open it in a native app.
+    </div>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, (c) => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // ───── EVENTS ─────
+  $('file-input').addEventListener('change', (e) => addFiles(e.target.files));
+
+  const dz = $('dropzone');
+  ['dragenter','dragover'].forEach(ev => dz.addEventListener(ev, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dz.classList.add('dragover');
+  }));
+  ['dragleave','drop'].forEach(ev => dz.addEventListener(ev, (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dz.classList.remove('dragover');
+  }));
+  dz.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files) addFiles(e.dataTransfer.files);
+  });
+
+  // Also accept drops anywhere on the page
+  ['dragover','drop'].forEach(ev => window.addEventListener(ev, (e) => e.preventDefault()));
+  window.addEventListener('drop', (e) => {
+    if (e.dataTransfer.files && e.target !== dz) addFiles(e.dataTransfer.files);
+  });
+</script>
+</body>
+</html>
