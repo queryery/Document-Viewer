@@ -65,7 +65,26 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 24px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
   }
+
+  .menu-toggle {
+    display: none;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 8px 12px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ink);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .menu-toggle:active { background: var(--highlight); }
 
   .brand {
     display: flex;
@@ -313,7 +332,7 @@
     box-shadow: var(--shadow);
     background: white;
     max-width: 100%;
-    height: auto;
+    height: auto !important;
   }
   .page-label {
     font-family: 'IBM Plex Mono', monospace;
@@ -502,20 +521,107 @@
   }
   ::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); }
 
+  .sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(26,23,20,0.35);
+    z-index: 30;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .sidebar-backdrop.open { display: block; }
+
   @media (max-width: 900px) {
+    html, body { overflow: auto; }
     body {
       grid-template-columns: 1fr;
-      grid-template-areas: "header" "sidebar" "main";
-      grid-template-rows: auto auto 1fr;
-      overflow: auto;
+      grid-template-areas: "header" "main";
+      grid-template-rows: auto 1fr;
+      min-height: 100%;
+      height: auto;
     }
+    header {
+      padding: 14px 16px 12px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .brand { gap: 10px; flex-wrap: wrap; }
+    .brand-mark { font-size: 22px; }
+    .brand-sub { display: none; }
+    .header-meta { font-size: 10px; }
+    .header-meta div:last-child { display: none; }
+    .menu-toggle { display: inline-block; }
+
     aside {
-      border-right: none;
-      border-bottom: 1px solid var(--rule);
-      max-height: 50vh;
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: min(86vw, 340px);
+      max-width: 340px;
+      background: var(--paper);
+      border-right: 1px solid var(--rule);
+      border-bottom: none;
+      z-index: 40;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      padding: 20px 20px 24px;
+      box-shadow: 0 0 30px rgba(26,23,20,0.15);
     }
-    main { padding: 28px 20px 60px; }
-    .doc-title { font-size: 24px; }
+    aside.open { transform: translateX(0); }
+
+    main {
+      padding: 20px 16px 60px;
+      overflow: visible;
+    }
+    .reader { max-width: 100%; }
+
+    .doc-header {
+      padding-bottom: 14px;
+      margin-bottom: 22px;
+      gap: 12px;
+    }
+    .doc-title { font-size: 22px; }
+    .doc-type-badge { font-size: 9px; padding: 4px 8px; letter-spacing: 0.15em; }
+
+    .docx-content { font-size: 16px; line-height: 1.65; }
+    .docx-content h1 { font-size: 1.5em; }
+    .docx-content h2 { font-size: 1.3em; }
+
+    .text-content {
+      padding: 18px 16px;
+      font-size: 12px;
+    }
+
+    .pdf-canvas-wrap { gap: 16px; }
+
+    .sheet-tab { padding: 8px 12px; font-size: 10px; }
+    .sheet-table td, .sheet-table th { padding: 5px 8px; font-size: 11px; }
+
+    .reader-empty { padding: 60px 16px; }
+    .reader-empty-mark { font-size: 64px; margin-bottom: 16px; }
+    .reader-empty h2 { font-size: 22px; }
+
+    .dropzone { padding: 22px 14px; }
+    .dropzone-icon { font-size: 30px; }
+    .dropzone-title { font-size: 16px; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+  }
+
+  @media (max-width: 480px) {
+    header { padding: 12px 14px 10px; }
+    .brand-mark { font-size: 20px; }
+    .header-meta { font-size: 9px; letter-spacing: 0.04em; }
+    main { padding: 16px 12px 50px; }
+    .doc-title { font-size: 19px; }
+    .docx-content { font-size: 15px; }
+    .sheet-table td, .sheet-table th { padding: 4px 6px; font-size: 10px; }
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    .file-item { padding: 12px 10px; }
+    .sheet-tab { padding: 12px 14px; }
   }
 </style>
 </head>
@@ -523,6 +629,7 @@
 
 <header>
   <div class="brand">
+    <button class="menu-toggle" id="menu-toggle" aria-label="Toggle menu" aria-expanded="false">☰ Menu</button>
     <div class="brand-mark">The Reading <em>Room</em></div>
     <div class="brand-sub">A quiet place for documents</div>
   </div>
@@ -531,6 +638,8 @@
     <div>everything stays on your device</div>
   </div>
 </header>
+
+<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
 <aside>
   <label for="file-input" class="dropzone" id="dropzone">
@@ -838,6 +947,39 @@
   ['dragover','drop'].forEach(ev => window.addEventListener(ev, (e) => e.preventDefault()));
   window.addEventListener('drop', (e) => {
     if (e.dataTransfer.files && e.target !== dz) addFiles(e.dataTransfer.files);
+  });
+
+  // ───── MOBILE SIDEBAR ─────
+  const sidebar = document.querySelector('aside');
+  const backdrop = $('sidebar-backdrop');
+  const menuBtn = $('menu-toggle');
+  const isMobile = () => window.matchMedia('(max-width: 900px)').matches;
+
+  function openSidebar() {
+    sidebar.classList.add('open');
+    backdrop.classList.add('open');
+    menuBtn.setAttribute('aria-expanded', 'true');
+  }
+  function closeSidebar() {
+    sidebar.classList.remove('open');
+    backdrop.classList.remove('open');
+    menuBtn.setAttribute('aria-expanded', 'false');
+  }
+  menuBtn.addEventListener('click', () => {
+    sidebar.classList.contains('open') ? closeSidebar() : openSidebar();
+  });
+  backdrop.addEventListener('click', closeSidebar);
+
+  // Close sidebar after picking a file on mobile
+  const origOpenFile = openFile;
+  openFile = function(id) {
+    origOpenFile(id);
+    if (isMobile()) closeSidebar();
+  };
+
+  // Reset sidebar state when switching between mobile/desktop
+  window.addEventListener('resize', () => {
+    if (!isMobile()) closeSidebar();
   });
 </script>
 </body>
